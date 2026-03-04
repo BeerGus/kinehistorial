@@ -232,6 +232,35 @@ class _AppState extends State<App> {
                 },
               );
 
+              // -----------------------------
+              // Historia Clínica
+              // -----------------------------
+              c.addJavaScriptHandler(
+                handlerName: "openHtmlFile",
+                callback: (args) async {
+                  try {
+                    final payload = (args.isNotEmpty ? args[0] : {}) as Map;
+                    final html = payload["html"]?.toString() ?? "";
+                    final filename = (payload["filename"]?.toString().isNotEmpty ?? false)
+                        ? payload["filename"].toString()
+                        : "HistoriaClinica.html";
+
+                    final tempDir = await getTemporaryDirectory();
+                    final filePath = p.join(tempDir.path, filename);
+                    await File(filePath).writeAsString(html, flush: true);
+
+                    final res = await OpenFilex.open(filePath);
+                    if (res.type == ResultType.done) {
+                      return {"ok": true};
+                    } else {
+                      return {"ok": false, "error": res.message};
+                    }
+                  } catch (e) {
+                    return {"ok": false, "error": e.toString()};
+                  }
+                },
+              );
+
               c.addJavaScriptHandler(
                 handlerName: "getConfig",
                 callback: (args) async {

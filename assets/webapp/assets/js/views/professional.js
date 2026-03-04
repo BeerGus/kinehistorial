@@ -80,16 +80,24 @@ export async function renderProfessional() {
       <div style="height:1px; background:var(--border);"></div>
       <div class="spacer"></div>
 
-      <div class="muted" style="font-size:13px; margin-bottom:10px;">Información del dispositivo (solo lectura)</div>
+      <div class="muted" style="font-size:13px; margin-bottom:10px;">Información del dispositivo</div>
       <div class="grid two">
         <div>
           <label class="muted">Sistema operativo</label>
           <input class="input" value="${escapeHtml(cfg.device?.os || "-")}" disabled />
         </div>
         <div>
-          <label class="muted">Nombre del equipo</label>
+          <label class="muted">Nombre del equipo (detectado)</label>
           <input class="input" value="${escapeHtml(cfg.device?.name || "-")}" disabled />
         </div>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div>
+        <label class="muted">Alias del dispositivo (opcional)</label>
+        <input class="input" id="dev_alias" placeholder="Ej: Consultorio, Notebook casa, Tablet..." value="${escapeHtml(cfg.device?.alias || "")}" />
+        <div class="muted" style="font-size:12px; margin-top:4px;">Este alias identifica el equipo en los snapshots exportados.</div>
       </div>
 
       <div class="spacer"></div>
@@ -117,7 +125,8 @@ export async function renderProfessional() {
     btn.disabled = true;
     try {
       const res = await Bridge.call("saveConfig", {
-        professional: { nombre, apellido, documento, titulo, matricula }
+        professional: { nombre, apellido, documento, titulo, matricula },
+        deviceAlias: root.querySelector("#dev_alias").value.trim(),
       });
       if (!res || res.ok !== true) throw new Error("saveConfig falló");
       toast("Datos guardados ✓");

@@ -89,8 +89,9 @@ async function mockBridge(name, payload) {
     return { ok: true };
   }
 
-  if (name === "getConfig") return { professional: {}, device: { os: "MOCK", name: "dev" } };
+  if (name === "getConfig") return { professional: {}, device: { os: "MOCK", name: "dev", alias: "" } };
   if (name === "saveConfig") return { ok: true };
+  if (name === "openHtmlFile") return { ok: true };
 
   if (name === "openAttachment") return { ok: true };
   if (name === "openPath") return { ok: true };

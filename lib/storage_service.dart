@@ -94,12 +94,20 @@ class StorageService {
 
   Future<void> saveConfig(Map<String, dynamic> incoming) async {
     final current = await getConfig();
-    // Mergeamos: si viene 'professional', lo reemplazamos completo
     if (incoming.containsKey('professional')) {
       current['professional'] = incoming['professional'];
     }
-    // device siempre lo refrescamos con datos reales del sistema
-    current['device'] = _deviceInfo();
+    // Refrescar datos del dispositivo y aplicar alias si vino
+    final device = _deviceInfo();
+    if (incoming.containsKey('deviceAlias')) {
+      final alias = incoming['deviceAlias']?.toString().trim() ?? '';
+      if (alias.isNotEmpty) device['alias'] = alias;
+    } else if (current['device'] is Map) {
+      // Preservar alias existente si no vino uno nuevo
+      final existingAlias = (current['device'] as Map)['alias']?.toString() ?? '';
+      if (existingAlias.isNotEmpty) device['alias'] = existingAlias;
+    }
+    current['device'] = device;
     await File(_configFile).writeAsString(jsonEncode(current), flush: true);
   }
 
@@ -431,13 +439,22 @@ class StorageService {
     final entries = await _readJsonList(_entriesFile);
     final config = await getConfig();
 
-    // Refrescar device info antes de exportar
-    config['device'] = _deviceInfo();
+    // Refrescar device info antes de exportar, preservando alias
+    final device = _deviceInfo();
+    if (config['device'] is Map) {
+      final existingAlias = (config['device'] as Map)['alias']?.toString() ?? '';
+      if (existingAlias.isNotEmpty) device['alias'] = existingAlias;
+    }
+    config['device'] = device;
     await File(_configFile).writeAsString(jsonEncode(config), flush: true);
+
+    // deviceName para el manifest: alias si existe, sino OS
+    final deviceAlias = (config['device'] as Map?)?['alias']?.toString() ?? '';
+    final manifestDeviceName = deviceAlias.isNotEmpty ? deviceAlias : _deviceName();
 
     final manifest = {
       'exportedAt': now,
-      'deviceName': _deviceName(),
+      'deviceName': manifestDeviceName,
       'patientsCount': patients.length,
       'entriesCount': entries.length,
     };
