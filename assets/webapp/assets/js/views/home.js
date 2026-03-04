@@ -4,6 +4,87 @@ function isoShort(iso) {
   return iso;
 }
 
+// ── Modal About ──────────────────────────────────────────────────────────────
+function showAbout() {
+  if (document.getElementById("aboutModal")) return;
+
+  const overlay = document.createElement("div");
+  overlay.id = "aboutModal";
+  overlay.style.cssText = `
+    position: fixed; inset: 0; z-index: 9000;
+    background: rgba(11, 34, 51, 0.45);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  `;
+
+  overlay.innerHTML = `
+    <div style="
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 28px 24px 20px;
+      max-width: 420px;
+      width: 100%;
+      box-shadow: 0 12px 40px rgba(10,40,70,0.18);
+      position: relative;
+    ">
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:18px;">
+        <div>
+          <div style="font-size:20px; font-weight:700; color:var(--text);">KineHistorial</div>
+          <div style="font-size:13px; color:var(--muted); margin-top:3px;">
+            Versión <strong>3.0.0</strong> &nbsp;·&nbsp; Doc funcional <strong>v2.1</strong>
+          </div>
+        </div>
+        <button id="aboutClose" style="
+          background:none; border:none; cursor:pointer;
+          font-size:20px; color:var(--muted); padding:4px 8px;
+          border-radius:8px; line-height:1;
+        " aria-label="Cerrar">✕</button>
+      </div>
+
+      <div style="
+        background: var(--primary-2);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 14px;
+        font-size: 13px;
+        color: var(--text);
+        line-height: 1.5;
+        margin-bottom: 16px;
+      ">
+        <div style="font-weight:600; margin-bottom:6px;">⚕ Uso profesional</div>
+        Esta aplicación es una herramienta de apoyo para profesionales de la kinesiología.
+        No reemplaza el criterio clínico del profesional ni constituye un sistema de salud
+        certificado. El profesional es responsable del uso y resguardo de la información
+        ingresada.
+      </div>
+
+      <div style="font-size:13px; color:var(--muted); line-height:1.6;">
+        <div>Desarrollado para uso en consultorio, sin conexión a internet.</div>
+        <div style="margin-top:8px;">Los datos se almacenan exclusivamente en el dispositivo.</div>
+        <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+          © 2025 – KineHistorial
+        </div>
+      </div>
+
+      <div style="margin-top:18px; text-align:right;">
+        <button id="aboutCloseBtn" class="btn primary" style="min-width:90px;">Cerrar</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector("#aboutClose").addEventListener("click", close);
+  overlay.querySelector("#aboutCloseBtn").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+  const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
+  document.addEventListener("keydown", onKey);
+}
+
+// ── Vista Home ────────────────────────────────────────────────────────────────
 export function renderHome() {
   const root = document.createElement("div");
 
@@ -20,70 +101,59 @@ export function renderHome() {
 
   const metaBox = document.createElement("div");
   metaBox.className = "muted";
-  metaBox.style.marginTop = "8px";
-  metaBox.style.display = "grid";
-  metaBox.style.gap = "4px";
+  metaBox.style.cssText = "margin-top:8px; display:grid; gap:4px;";
 
   const lineExport = document.createElement("div");
   const lineImport = document.createElement("div");
-
   lineExport.textContent = "Última exportación: -";
   lineImport.textContent = "Última importación: -";
-
   metaBox.appendChild(lineExport);
   metaBox.appendChild(lineImport);
 
-  // Carga async
   (async () => {
     try {
       const callHandler = window.flutter_inappwebview?.callHandler;
       if (!callHandler) return;
-
       const meta = await callHandler("getMeta");
       if (!meta) return;
 
-      const exAt = isoShort(meta.lastExportAt);
-
-      lineExport.textContent = `Última exportación: ${exAt}`;
+      lineExport.textContent = `Última exportación: ${isoShort(meta.lastExportAt)}`;
 
       if (meta.lastImportAt) {
-        const imAt = isoShort(meta.lastImportAt);
         const snap = meta.lastImportedSnapshot || {};
-        const snapExpAt = isoShort(snap.exportedAt);
-        const snapDev = snap.deviceName || "desconocido";
-        const snapP = snap.patientsCount ?? "?";
-        const snapE = snap.entriesCount ?? "?";
-
         lineImport.textContent =
-          `Última importación: ${imAt} | Zip: ${snapP} pacientes, ${snapE} entradas | Exportado: ${snapExpAt} | Origen: ${snapDev}`;
+          `Última importación: ${isoShort(meta.lastImportAt)} | ` +
+          `Zip: ${snap.patientsCount ?? "?"} pacientes, ${snap.entriesCount ?? "?"} entradas | ` +
+          `Exportado: ${isoShort(snap.exportedAt)} | Origen: ${snap.deviceName || "desconocido"}`;
       } else {
         lineImport.textContent = "Última importación: -";
       }
-    } catch (_) {
-      // silencioso
-    }
+    } catch (_) {}
   })();
 
   const actions = document.createElement("div");
   actions.className = "row";
-  actions.style.gap = "10px";
-  actions.style.flexWrap = "wrap";
+  actions.style.cssText = "gap:10px; flex-wrap:wrap; margin-top:14px;";
 
-  const btn = document.createElement("button");
-  btn.className = "btn primary";
-  btn.type = "button";
-  btn.textContent = "Ir a pacientes";
-  btn.addEventListener("click", () => {
-    location.hash = "#/patients";
-  });
+  const btnPacientes = document.createElement("button");
+  btnPacientes.className = "btn primary";
+  btnPacientes.type = "button";
+  btnPacientes.textContent = "Ir a pacientes";
+  btnPacientes.addEventListener("click", () => { location.hash = "#/patients"; });
 
-  actions.appendChild(btn);
+  const btnAbout = document.createElement("button");
+  btnAbout.className = "btn secondary";
+  btnAbout.type = "button";
+  btnAbout.textContent = "Acerca de";
+  btnAbout.addEventListener("click", showAbout);
+
+  actions.appendChild(btnPacientes);
+  actions.appendChild(btnAbout);
 
   card.appendChild(h);
   card.appendChild(p);
   card.appendChild(metaBox);
   card.appendChild(actions);
-
   root.appendChild(card);
 
   return root;

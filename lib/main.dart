@@ -232,6 +232,23 @@ class _AppState extends State<App> {
                 },
               );
 
+              c.addJavaScriptHandler(
+                handlerName: "getConfig",
+                callback: (args) async {
+                  return await storage.getConfig();
+                },
+              );
+
+              c.addJavaScriptHandler(
+                handlerName: "saveConfig",
+                callback: (args) async {
+                  final payload = (args.isNotEmpty ? args[0] : {}) as Map;
+                  final data = Map<String, dynamic>.from(payload);
+                  await storage.saveConfig(data);
+                  return {"ok": true};
+                },
+              );
+
               // -----------------------------
               // Pacientes
               // -----------------------------

@@ -1,6 +1,7 @@
 import { el, fmtDT, escapeHtml, toast } from "../ui.js";
 import { Store } from "../store.js";
 import { Bridge } from "../bridge.js";
+import { generateHC } from "./hc_generator.js";
 
 function fmtDateYMD(ymd) {
   if (!ymd) return "-";
@@ -45,6 +46,7 @@ export async function renderPatientDetail({ id }) {
         <div class="hr"></div>
         <div class="row">
           <a class="btn" href="#/patient/${escapeHtml(p.id)}/new-entry">Nueva entrada</a>
+          <button class="btn secondary" id="btnGenHC">Generar HC</button>
           <a class="btn secondary" href="#/patients">Volver</a>
         </div>
       </div>
@@ -93,6 +95,8 @@ export async function renderPatientDetail({ id }) {
   if (entries.length === 0) {
     $list.appendChild(el(`<div class="muted">Todavía no hay entradas.</div>`));
   }
+
+  root.querySelector("#btnGenHC").addEventListener("click", () => generateHC(p));
 
   // Handler anular desde listado
   root.addEventListener("click", async (ev) => {

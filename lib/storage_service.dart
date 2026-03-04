@@ -15,6 +15,7 @@ class StorageService {
   String get _patientsFile => p.join(dataDir.path, 'patients.json');
   String get _entriesFile => p.join(dataDir.path, 'entries.json');
   String get _metaFile => p.join(dataDir.path, 'meta.json');
+  String get _configFile => p.join(root.path, 'config.json');
 
   Future<void> init() async {
     final base = await getApplicationSupportDirectory();
@@ -29,6 +30,7 @@ class StorageService {
     await _ensureFile(_patientsFile, defaultContent: '[]');
     await _ensureFile(_entriesFile, defaultContent: '[]');
     await _ensureFile(_metaFile, defaultContent: '{}');
+    await _ensureFile(_configFile, defaultContent: '{}');
   }
 
   Future<void> _ensureFile(String path, {required String defaultContent}) async {
@@ -75,6 +77,44 @@ class StorageService {
 
   Future<Map<String, dynamic>> getMeta() async {
     return await _readMeta();
+  }
+
+  // -------------------------
+  // Config (profesional + dispositivo)
+  // -------------------------
+  Future<Map<String, dynamic>> getConfig() async {
+    try {
+      final txt = await File(_configFile).readAsString();
+      final decoded = jsonDecode(txt);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
+  Future<void> saveConfig(Map<String, dynamic> incoming) async {
+    final current = await getConfig();
+    // Mergeamos: si viene 'professional', lo reemplazamos completo
+    if (incoming.containsKey('professional')) {
+      current['professional'] = incoming['professional'];
+    }
+    // device siempre lo refrescamos con datos reales del sistema
+    current['device'] = _deviceInfo();
+    await File(_configFile).writeAsString(jsonEncode(current), flush: true);
+  }
+
+  Map<String, dynamic> _deviceInfo() {
+    String os = Platform.operatingSystem.toUpperCase();
+    String name = '';
+    try {
+      // En Android/Windows el hostname no siempre es accesible, usamos env
+      name = Platform.environment['COMPUTERNAME'] ??
+             Platform.environment['HOSTNAME'] ??
+             Platform.localHostname;
+    } catch (_) {
+      name = os;
+    }
+    return {'os': os, 'name': name};
   }
 
   // -------------------------
@@ -389,6 +429,11 @@ class StorageService {
 
     final patients = await _readJsonList(_patientsFile);
     final entries = await _readJsonList(_entriesFile);
+    final config = await getConfig();
+
+    // Refrescar device info antes de exportar
+    config['device'] = _deviceInfo();
+    await File(_configFile).writeAsString(jsonEncode(config), flush: true);
 
     final manifest = {
       'exportedAt': now,

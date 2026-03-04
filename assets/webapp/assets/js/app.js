@@ -3,6 +3,7 @@ import { renderPatients } from "./views/patients.js";
 import { renderPatientDetail } from "./views/patient_detail.js";
 import { renderEntryNew } from "./views/entry_new.js";
 import { renderEntryEdit } from "./views/entry_edit.js";
+import { renderProfessional } from "./views/professional.js";
 import { parseRoute } from "./router.js";
 
 console.log("[SMOKE] app.js ejecutó");
@@ -47,6 +48,7 @@ async function render() {
     else if (route.name === "patients") view = await renderPatients();
     else if (route.name === "patient_detail") view = await renderPatientDetail(route.params);
     else if (route.name === "entry_new") view = renderEntryNew(route.params);
+    else if (route.name === "professional") view = await renderProfessional();
     else view = renderHome();
 
     if (token !== renderToken) return;

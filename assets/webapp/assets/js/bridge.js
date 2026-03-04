@@ -34,6 +34,9 @@ export const Bridge = {
     return this.call("openPath", { path });
   },
 
+  getConfig() { return this.call("getConfig"); },
+  saveConfig(data) { return this.call("saveConfig", data); },
+
   async eliminateEntry(patientId, entryId) {
     const entries = await this.listEntries(patientId);
     const e = (entries || []).find(x => String(x.id) === String(entryId));
@@ -85,6 +88,9 @@ async function mockBridge(name, payload) {
     if (i >= 0) _entries[i] = { ..._entries[i], ...e };
     return { ok: true };
   }
+
+  if (name === "getConfig") return { professional: {}, device: { os: "MOCK", name: "dev" } };
+  if (name === "saveConfig") return { ok: true };
 
   if (name === "openAttachment") return { ok: true };
   if (name === "openPath") return { ok: true };

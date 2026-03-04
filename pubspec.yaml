@@ -1,7 +1,7 @@
 name: kine_historial
 description: KineHistorial wrapper
 publish_to: 'none'
-version: 1.1.1
+version: 3.0.0
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -31,4 +31,6 @@ flutter:
     - assets/webapp/assets/js/views/patient_detail.js
     - assets/webapp/assets/js/views/entry_new.js
     - assets/webapp/assets/js/views/entry_edit.js
+    - assets/webapp/assets/js/views/professional.js
+    - assets/webapp/assets/js/views/hc_generator.js
     - assets/
