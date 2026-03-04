@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>KineHistorial</title>
+
+  <link rel="stylesheet" href="./assets/css/styles.css" />
+  <link rel="icon" href="./assets/img/icon.png">
+</head>
+
+<body>
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="topbar__left">
+      <div class="brand">KineHistorial</div>
+    </div>
+
+    <nav class="topbar__right">
+      <a class="navlink" href="#/">Inicio</a>
+      <a class="navlink" href="#/patients">Pacientes</a>
+
+      <button class="btn secondary" id="btnExportZip" type="button">Exportar ZIP</button>
+      <button class="btn secondary" id="btnImportZip" type="button">Importar ZIP</button>
+    </nav>
+  </header>
+
+  <!-- APP MOUNT -->
+  <main class="main">
+    <div id="app"></div>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- APP BOOT -->
+  <script type="module">
+    import { Bridge } from "./assets/js/bridge.js";
+    import { toast } from "./assets/js/ui.js";
+    import "./assets/js/app.js";
+
+    // Export ZIP
+    document.getElementById("btnExportZip")?.addEventListener("click", async () => {
+      try {
+        const res = await Bridge.exportSnapshotZip();
+
+        if (!res || res.ok !== true) {
+          toast(res?.cancelled ? "Export cancelado" : ("Export falló: " + (res?.error || "")));
+          return;
+        }
+
+        toast("ZIP exportado ✅");
+        alert(
+          "ZIP exportado ✅\n\n" +
+          "Archivo: " + (res.fileName || "KineHistorial_snapshot.zip") + "\n" +
+          "Ubicación: " + (res.uri || res.path || "")
+        );
+      } catch (e) {
+        console.error(e);
+        toast("Error exportando");
+      }
+    });
+
+    // Import ZIP
+    document.getElementById("btnImportZip")?.addEventListener("click", async () => {
+      try {
+        const res = await Bridge.importSnapshotZip();
+
+        if (!res || res.ok !== true) {
+          toast(res?.cancelled ? "Import cancelado" : "Import falló");
+          return;
+        }
+
+        toast("Snapshot importado ✅");
+
+        // después del reload del WebView, vamos a una vista conocida
+        setTimeout(() => { location.hash = "#/patients"; }, 150);
+      } catch (e) {
+        console.error(e);
+        toast("Error importando");
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,497 @@
+:root { --pad: 14px; --radius: 14px; }
+* { box-sizing: border-box; }
+body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#f6f7fb; color:#111; }
+a { color: inherit; }
+
+.toast{
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(0,0,0,.85);
+  color: #fff;
+  font-size: 14px;
+  z-index: 9999;
+  max-width: 90vw;
+  white-space: pre-wrap;
+}
+.hidden{ display:none; }
+
+.topbar{
+  position: sticky; top:0; z-index: 50;
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 12px 14px; background:#fff; border-bottom:1px solid #e8e8ee;
+}
+.brand{ font-weight: 700; }
+.nav{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.navlink{ text-decoration:none; padding:8px 10px; border-radius:10px; }
+.navlink:hover{ background:#f1f2f7; }
+
+.container{ padding: var(--pad); max-width: 1100px; margin: 0 auto; }
+.card{
+  background:#fff; border:1px solid #e8e8ee; border-radius: var(--radius);
+  padding: 14px; box-shadow: 0 6px 18px rgba(0,0,0,0.04);
+}
+.grid{ display:grid; gap: 12px; }
+.grid.two{ grid-template-columns: 1fr; }
+@media (min-width: 860px){ .grid.two{ grid-template-columns: 1fr 1fr; } }
+
+.h1{ font-size: 22px; margin:0 0 10px; }
+.h2{ font-size: 16px; margin:0 0 10px; opacity: .9; }
+
+.row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.spacer{ height: 10px; }
+.input, .textarea{
+  width: 100%; padding: 10px 12px; border-radius: 12px;
+  border:1px solid #dfe0ea; background:#fff; outline:none;
+}
+.textarea{ min-height: 120px; resize: vertical; }
+
+.btn{
+  border:0; border-radius:12px; padding:10px 12px; cursor:pointer;
+  background:#111; color:#fff; font-weight:600;
+}
+.btn.secondary{ background:#eef0f6; color:#111; }
+.btn.danger{ background:#d92d20; }
+.btn:disabled{ opacity:.6; cursor:not-allowed; }
+
+.list{ display:flex; flex-direction:column; gap:10px; }
+.item{
+  display:flex; justify-content:space-between; gap:10px; align-items:center;
+  padding: 10px 12px; border-radius: 12px; border:1px solid #ececf2; background:#fff;
+}
+.muted{ opacity:.7; font-size: 13px; }
+
+.badge{ padding: 4px 8px; border-radius: 999px; background:#eef0f6; font-size: 12px; }
+.hr{ height:1px; background:#ececf2; margin:12px 0; }
+
+.toast{
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: 18px; background:#111; color:#fff; padding: 10px 12px;
+  border-radius: 12px; max-width: 92vw;
+}
+.hidden{ display:none; }
+
+.chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+.chip{ padding:6px 10px; border-radius:999px; border:1px solid #ddd; background:#fff; font-size:12px; }
+
+/* ===== TOPBAR responsive spacing ===== */
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 14px;
+}
+
+.topbar__right{
+  display:flex;
+  align-items:center;
+  gap:10px;            /* <- separación entre botones */
+  flex-wrap:wrap;      /* <- permite que bajen de línea en pantallas chicas */
+  justify-content:flex-end;
+}
+
+.navlink{
+  padding:8px 10px;
+  border-radius:10px;
+}
+
+/* Botones: más aire y mejor tactilidad */
+.btn{
+  padding:10px 14px;
+  border-radius:12px;
+}
+
+/* En pantallas chicas: que no quede todo apretado */
+@media (max-width: 520px){
+  .topbar{
+    align-items:flex-start;
+  }
+  .topbar__right{
+    width:100%;
+    justify-content:flex-start;
+  }
+  .btn, .navlink{
+    font-size:14px;
+  }
+}
+
+/* ===== Theme: celeste claro + blanco ===== */
+:root{
+  --bg: #f6fbff;          /* fondo general */
+  --surface: #ffffff;     /* cards/paneles */
+  --border: #d7e7f6;      /* bordes suaves */
+  --text: #0b2233;        /* texto principal */
+  --muted: #4b6a80;       /* texto secundario */
+  --primary: #2f9fe6;     /* celeste principal */
+  --primary-2: #e7f5ff;   /* celeste muy claro */
+}
+
+html, body{
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Links */
+a, .navlink{
+  color: var(--primary);
+}
+a:hover, .navlink:hover{
+  background: var(--primary-2);
+}
+
+/* Botones */
+.btn{
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.btn:hover{
+  background: var(--primary-2);
+  border-color: var(--primary);
+}
+.btn.primary{
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+.btn.primary:hover{
+  filter: brightness(0.98);
+}
+
+/* Superficies */
+.card, .panel, .box, .dbg{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+/* Chips / tags */
+.chip, .tag, .badge{
+  background: var(--primary-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+/* Inputs */
+input, textarea, select{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--text);
+}
+input:focus, textarea:focus, select:focus{
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(47, 159, 230, 0.15);
+}
+
+/* ===== Header / Topbar spacing + responsive ===== */
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar__left{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.topbar__right{
+  display:flex;
+  align-items:center;
+  gap:10px;        /* separación entre links/botones */
+  flex-wrap:wrap;  /* permite bajar de línea en pantallas chicas */
+  justify-content:flex-end;
+}
+
+.navlink{
+  display:inline-flex;
+  align-items:center;
+  padding:8px 10px;
+  border-radius:10px;
+  text-decoration:none;
+  border: 1px solid transparent;
+}
+
+.navlink:hover{
+  border-color: var(--border);
+}
+
+/* Botones del header: que no queden pegados */
+.topbar .btn{
+  margin:0;
+}
+
+/* Mobile: barra en 2 filas prolija */
+@media (max-width: 520px){
+  .topbar{
+    align-items:flex-start;
+  }
+  .topbar__right{
+    width:100%;
+    justify-content:flex-start;
+  }
+}
+/* ===== Header: título como barra completa arriba ===== */
+.topbar{
+  display:flex;
+  flex-wrap:wrap;          /* permite 2 filas */
+  align-items:center;
+  gap:12px;
+  padding:0;               /* lo manejamos por secciones */
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Fila 1: título ocupa 100% */
+.topbar__left{
+  flex: 1 0 100%;
+  padding:12px 14px;
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+}
+
+/* Fila 2: botones */
+.topbar__right{
+  flex: 1 0 100%;
+  padding:10px 14px 12px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  justify-content:flex-start;
+}
+
+/* Layout A (mediano): nav arriba, acciones abajo */
+@media (max-width: 780px){
+  .topbar__right .navlink{ order: 1; }
+  .topbar__right .btn{ order: 2; }
+
+  /* salto entre nav y acciones */
+  .topbar__right .navlink:last-of-type{
+    margin-right: 9999px;
+  }
+}
+
+/* Layout B (muy chico): apilado */
+@media (max-width: 420px){
+  .topbar__right .navlink,
+  .topbar__right .btn{
+    flex: 1 0 100%;
+  }
+  .topbar__right .navlink:last-of-type{
+    margin-right: 0;
+  }
+}
+/* ===== Global padding (borde alrededor de toda la app) ===== */
+body{
+  padding: 10px;
+}
+@media (max-width: 520px){
+  body{ padding: 12px; }
+}
+
+/* ===== Header: título arriba + botones con grid responsive ===== */
+.topbar{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+/* título como barra */
+.topbar__left{
+  flex: 1 0 100%;
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  padding: 2px 2px 6px;
+}
+
+/* botones: default en fila, wrap natural */
+.topbar__right{
+  flex: 1 0 100%;
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+  justify-content:flex-start;
+}
+
+/* Desktop: todo auto */
+.topbar__right .navlink,
+.topbar__right .btn{
+  flex: 0 0 auto;
+}
+
+/* Cuando ya no entran 4: forzamos grilla 2x2 */
+@media (max-width: 720px){
+  .topbar__right{
+    display:grid;
+    grid-template-columns: 1fr 1fr; /* 2 arriba + 2 abajo */
+    gap:10px;
+  }
+  .topbar__right .navlink,
+  .topbar__right .btn{
+    width:100%;
+    justify-content:center;
+    text-align:center;
+  }
+}
+
+/* Cuando ni 2 columnas entran: 1 columna (vertical) */
+@media (max-width: 380px){
+  .topbar__right{
+    grid-template-columns: 1fr;
+  }
+}
+/* ===== Header grid: evitar huecos y fondos raros ===== */
+@media (max-width: 720px){
+  .topbar__right > *{
+    background: var(--surface) !important; /* evita ese gris tipo input */
+  }
+
+  /* Si queda 1 solo item visible, que ocupe toda la fila */
+  .topbar__right > *:only-child{
+    grid-column: 1 / -1;
+  }
+
+  /* Si quedan 3 items, el tercero que ocupe toda la fila (se ve mejor) */
+  .topbar__right > *:nth-child(3):last-child{
+    grid-column: 1 / -1;
+  }
+}
+
+/* ===== Meta (Creada | Últ modif) legible en mobile ===== */
+.meta, .submeta, .smallmeta{
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+/* si es una sola línea con separadores */
+.meta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+
+/* En mobile: que corte prolijo y no quede apretado */
+@media (max-width: 520px){
+  .meta, .submeta, .smallmeta{
+    font-size: 13px;
+  }
+  .meta{
+    gap:4px;
+  }
+}
+/* fallback: textos chiquitos debajo de títulos */
+.card small{
+  display:block;
+  color: var(--muted);
+  margin-top:6px;
+  line-height:1.25;
+}
+
+/* ===== Fine tuning: cards / spacing / sombras suaves ===== */
+.main{
+  margin-top: 12px;
+}
+
+.card{
+  padding: 14px;
+  box-shadow: 0 6px 18px rgba(10, 40, 70, 0.06);
+}
+
+.card + .card{
+  margin-top: 12px;
+}
+
+/* títulos más consistentes */
+h1, h2, h3{
+  margin: 0 0 8px 0;
+}
+.muted{ color: var(--muted); }
+
+/* Botones con mejor tactilidad */
+.btn{
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .05s ease;
+}
+.btn:active{
+  transform: translateY(1px);
+}
+
+/* Inputs y textareas: más aire */
+input, textarea, select{
+  width: 100%;
+  box-sizing: border-box;
+}
+textarea{
+  min-height: 92px;
+  resize: vertical;
+}
+
+/* Separación de filas de acciones */
+.actions, .row{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+
+/* Mobile: menos padding pero prolijo */
+@media (max-width: 520px){
+  .card{ padding: 12px; }
+  .main{ margin-top: 10px; }
+}
+
+/* ===== Meta lines: desktop en una línea, mobile en 2 líneas ===== */
+.metaLine{
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.25;
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+
+.metaLine .sep{ opacity:.75; }
+
+/* Mobile: apilar y ocultar separador */
+@media (max-width: 520px){
+  .metaLine{
+    display:block;
+    font-size: 13px;
+  }
+  .metaLine .sep{ display:none; }
+  .metaLine > span{
+    display:block;
+    margin-top:2px;
+  }
+}
+.btn.danger{
+  background:#ffeded;
+  border:1px solid #ffb3b3;
+  color:#8b0000;
+}
+.btn.danger:hover{
+  filter:brightness(0.98);
+}

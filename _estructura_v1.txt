@@ -1,0 +1,36 @@
+kine_historial/
+└─ flutter_app/
+   ├─ pubspec.yaml
+   ├─ lib/
+   │  ├─ main.dart
+   │  ├─ storage_service.dart
+   │  └─ zip_service.dart            (opcional, si lo separamos)
+   └─ assets/
+      └─ webapp/
+         ├─ index.html
+         └─ assets/
+            ├─ css/
+            │  └─ styles.css
+            └─ js/
+               ├─ app.js
+               ├─ router.js
+               ├─ bridge.js
+               ├─ store.js
+               ├─ ui.js
+               └─ views/
+                  ├─ home.js
+                  ├─ patients.js
+                  ├─ patient_detail.js
+                  └─ entry_new.js
+				  
+Y los datos reales (JSON + media) NO viven ahí, 
+sino en la carpeta privada de la app (runtime):				  
+<app_private>/KineHistorial/
+├─ data/
+│  ├─ patients.json
+│  └─ entries.json
+└─ media/
+   └─ patients/
+      └─ P0001/
+         ├─ images/
+         └─ files/

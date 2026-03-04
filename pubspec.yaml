@@ -1,0 +1,34 @@
+name: kine_historial
+description: KineHistorial wrapper
+publish_to: 'none'
+version: 1.1.1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_inappwebview: ^6.0.0
+  path_provider: ^2.1.4
+  archive: ^3.6.1
+  file_picker: ^8.0.6
+  open_filex: ^4.5.0
+  flutter_file_dialog: ^3.0.2
+  
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/webapp/index.html
+    - assets/webapp/assets/css/styles.css
+    - assets/webapp/assets/js/app.js
+    - assets/webapp/assets/js/router.js
+    - assets/webapp/assets/js/bridge.js
+    - assets/webapp/assets/js/store.js
+    - assets/webapp/assets/js/ui.js
+    - assets/webapp/assets/js/views/home.js
+    - assets/webapp/assets/js/views/patients.js
+    - assets/webapp/assets/js/views/patient_detail.js
+    - assets/webapp/assets/js/views/entry_new.js
+    - assets/webapp/assets/js/views/entry_edit.js
+    - assets/
