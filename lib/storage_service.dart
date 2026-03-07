@@ -97,13 +97,11 @@ class StorageService {
     if (incoming.containsKey('professional')) {
       current['professional'] = incoming['professional'];
     }
-    // Refrescar datos del dispositivo y aplicar alias si vino
     final device = _deviceInfo();
     if (incoming.containsKey('deviceAlias')) {
       final alias = incoming['deviceAlias']?.toString().trim() ?? '';
       if (alias.isNotEmpty) device['alias'] = alias;
     } else if (current['device'] is Map) {
-      // Preservar alias existente si no vino uno nuevo
       final existingAlias = (current['device'] as Map)['alias']?.toString() ?? '';
       if (existingAlias.isNotEmpty) device['alias'] = existingAlias;
     }
@@ -115,7 +113,6 @@ class StorageService {
     String os = Platform.operatingSystem.toUpperCase();
     String name = '';
     try {
-      // En Android/Windows el hostname no siempre es accesible, usamos env
       name = Platform.environment['COMPUTERNAME'] ??
              Platform.environment['HOSTNAME'] ??
              Platform.localHostname;
@@ -218,7 +215,6 @@ class StorageService {
         ? List<dynamic>.from(obj['audit'])
         : <dynamic>[];
 
-    // si no vino audit, garantizamos CREADA
     if ((obj['audit'] as List).isEmpty) {
       (obj['audit'] as List).add({
         'ts': obj['createdAt'],
@@ -309,13 +305,11 @@ class StorageService {
         ? List<dynamic>.from(obj['audit'])
         : <dynamic>[];
 
-    // Snapshot liviano para historial de versiones (sin adjuntos pesados si querés dejarlo igual)
     (obj['versions'] as List).add({
       'version': currentVersion,
       'ts': now,
     });
 
-    // Si la acción ya vino explícita (ej: ELIMINATED), no pisarla.
     final incomingAudit = (incoming['audit'] is List)
         ? List<dynamic>.from(incoming['audit'] as List)
         : null;
@@ -421,12 +415,14 @@ class StorageService {
 
     final exportedAt = manifest['exportedAt']?.toString();
     final deviceName = manifest['deviceName']?.toString();
+    final deviceType = manifest['deviceType']?.toString();
 
     return {
       'ok': true,
       'zipName': zipName,
       'exportedAt': exportedAt,
       'deviceName': deviceName,
+      'deviceType': deviceType,
       'patientsCount': patientsCount,
       'entriesCount': entriesCount,
     };
@@ -439,7 +435,6 @@ class StorageService {
     final entries = await _readJsonList(_entriesFile);
     final config = await getConfig();
 
-    // Refrescar device info antes de exportar, preservando alias
     final device = _deviceInfo();
     if (config['device'] is Map) {
       final existingAlias = (config['device'] as Map)['alias']?.toString() ?? '';
@@ -448,13 +443,13 @@ class StorageService {
     config['device'] = device;
     await File(_configFile).writeAsString(jsonEncode(config), flush: true);
 
-    // deviceName para el manifest: alias si existe, sino OS
     final deviceAlias = (config['device'] as Map?)?['alias']?.toString() ?? '';
     final manifestDeviceName = deviceAlias.isNotEmpty ? deviceAlias : _deviceName();
 
     final manifest = {
       'exportedAt': now,
       'deviceName': manifestDeviceName,
+      'deviceType': _deviceName(),
       'patientsCount': patients.length,
       'entriesCount': entries.length,
     };
@@ -495,6 +490,20 @@ class StorageService {
     final summary =
         inspected ?? await inspectSnapshotZip(zipFilePath, zipName: zipName);
 
+    // ── Preservar config local antes de borrar todo ──────────────────────────
+    // El zip viene de otro dispositivo: no debe pisar el alias ni los datos
+    // técnicos del dispositivo actual.
+    Map<String, dynamic>? localConfig;
+    final configFile = File(_configFile);
+    if (await configFile.exists()) {
+      try {
+        final txt = await configFile.readAsString();
+        final decoded = jsonDecode(txt);
+        if (decoded is Map) localConfig = Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     if (await root.exists()) {
       await root.delete(recursive: true);
     }
@@ -519,11 +528,34 @@ class StorageService {
 
     await init();
 
+    // ── Restaurar config local: device y alias siempre del dispositivo actual.
+    // Professional: se mantiene el local si existía, sino se usa el del zip.
+    if (localConfig != null) {
+      final importedConfig = await getConfig();
+
+      final localProfessional = localConfig['professional'];
+      final importedProfessional = importedConfig['professional'];
+      final professionalToKeep = (localProfessional is Map && localProfessional.isNotEmpty)
+          ? localProfessional
+          : importedProfessional;
+
+      final restoredConfig = {
+        ...importedConfig,
+        'professional': professionalToKeep,
+        'device': localConfig['device'], // device local siempre gana
+      };
+
+      await File(_configFile)
+          .writeAsString(jsonEncode(restoredConfig), flush: true);
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     final meta = await _readMeta();
     meta['lastImportAt'] = now;
     meta['lastImportedSnapshot'] = {
       'exportedAt': summary['exportedAt'],
       'deviceName': summary['deviceName'],
+      'deviceType': summary['deviceType'],
       'patientsCount': summary['patientsCount'],
       'entriesCount': summary['entriesCount'],
       'zipName': summary['zipName'] ?? zipName,
@@ -554,7 +586,6 @@ class StorageService {
       final name = (f['name'] ?? 'file').toString();
       final mime = (f['mime'] ?? f['type'] ?? 'application/octet-stream').toString();
 
-      // soporta base64 (web) o path (legado)
       final b64 = (f['base64'] ?? '').toString();
       final srcPath = (f['path'] ?? '').toString();
 

@@ -32,7 +32,7 @@ function showAbout() {
         <div>
           <div style="font-size:20px; font-weight:700; color:var(--text);">KineHistorial</div>
           <div style="font-size:13px; color:var(--muted); margin-top:3px;">
-            Versión <strong>3.0.0</strong> &nbsp;·&nbsp; Doc funcional <strong>v2.1</strong>
+            Versión <strong>3.0.0</strong> &nbsp;·&nbsp; Doc funcional <strong>v3.0</strong>
           </div>
         </div>
         <button id="aboutClose" style="
@@ -53,7 +53,7 @@ function showAbout() {
         margin-bottom: 16px;
       ">
         <div style="font-weight:600; margin-bottom:6px;">⚕ Uso profesional</div>
-        Esta aplicación es una herramienta de apoyo para profesionales de la kinesiología.
+        Esta aplicación es una herramienta de apoyo para profesionales de la salud.
         No reemplaza el criterio clínico del profesional ni constituye un sistema de salud
         certificado. El profesional es responsable del uso y resguardo de la información
         ingresada.
@@ -61,7 +61,6 @@ function showAbout() {
 
       <div style="font-size:13px; color:var(--muted); line-height:1.6;">
         <div>Desarrollado para uso en consultorio, sin conexión a internet.</div>
-        <div style="margin-top:8px;">Los datos se almacenan exclusivamente en el dispositivo.</div>
         <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
           © 2025 – KineHistorial
         </div>
@@ -123,8 +122,8 @@ export function renderHome() {
         const snap = meta.lastImportedSnapshot || {};
         lineImport.textContent =
           `Última importación: ${isoShort(meta.lastImportAt)} | ` +
-          `Zip: ${snap.patientsCount ?? "?"} pacientes, ${snap.entriesCount ?? "?"} entradas | ` +
-          `Exportado: ${isoShort(snap.exportedAt)} | Origen: ${snap.deviceName || "desconocido"}`;
+          `Contenido: ${snap.patientsCount ?? "?"} pacientes, ${snap.entriesCount ?? "?"} entradas | ` +
+          `De fecha: ${isoShort(snap.exportedAt)} | Origen: ${snap.deviceName || "desconocido"} (${snap.deviceType || "dispositivo desconocido"})`;
       } else {
         lineImport.textContent = "Última importación: -";
       }
