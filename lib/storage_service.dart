@@ -480,6 +480,188 @@ class StorageService {
     return zipPath;
   }
 
+  // ── Verifica si hay datos locales (pacientes o entradas) ──────────────────
+  Future<bool> _localHasData() async {
+    try {
+      final pf = File(_patientsFile);
+      final ef = File(_entriesFile);
+      if (!await pf.exists() && !await ef.exists()) return false;
+      if (await pf.exists()) {
+        final patients = await _readJsonList(_patientsFile);
+        if (patients.isNotEmpty) return true;
+      }
+      if (await ef.exists()) {
+        final entries = await _readJsonList(_entriesFile);
+        if (entries.isNotEmpty) return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ── Backup del estado local antes de un merge ──────────────────────────────
+  // Genera un ZIP del estado actual en el directorio temporal.
+  // El path queda guardado en meta['lastImportedSnapshot']['backupPath'].
+  Future<String> _backupLocalState() async {
+    final stamp = DateTime.now()
+        .toUtc()
+        .toIso8601String()
+        .replaceAll(':', '-')
+        .replaceAll('.', '-');
+    final tempDir = await getTemporaryDirectory();
+    final backupPath = p.join(tempDir.path, 'KineHistorial_backup_$stamp.zip');
+
+    if (!await root.exists()) return backupPath;
+
+    final encoder = ZipFileEncoder();
+    encoder.create(backupPath);
+    encoder.addDirectory(root, includeDirName: true);
+    encoder.close();
+
+    return backupPath;
+  }
+
+  // ── Helper de comparacion de fechas ISO ───────────────────────────────────
+  // Retorna true si a es más reciente o igual que b.
+  // null se trata como el más antiguo posible.
+  bool _isNewerOrEqual(String? a, String? b) {
+    if (a == null) return false;
+    if (b == null) return true;
+    return a.compareTo(b) >= 0;
+  }
+
+  // ── Copia adjuntos desde el ZIP al filesystem local ───────────────────────
+  // Solo copia los que no existen ya localmente.
+  Future<void> _mergeAttachmentsFromZip(
+    Archive archive,
+    Map<String, dynamic> entry,
+  ) async {
+    final attachments = entry['attachments'];
+    if (attachments is! List) return;
+
+    for (final att in attachments) {
+      if (att is! Map) continue;
+      final relPath = (att['relPath'] ?? att['path'] ?? '').toString();
+      if (relPath.isEmpty) continue;
+
+      final absPath = p.join(
+        root.path,
+        relPath.replaceAll('/', Platform.pathSeparator),
+      );
+      if (await File(absPath).exists()) continue;
+
+      // El ZIP usa 'KineHistorial/' como prefijo de directorio raíz
+      final zipEntryName = 'KineHistorial/${relPath.replaceAll('\\', '/')}';
+      ArchiveFile? zipFile;
+      for (final zf in archive) {
+        if (zf.isFile && zf.name.replaceAll('\\', '/') == zipEntryName) {
+          zipFile = zf;
+          break;
+        }
+      }
+      if (zipFile == null) continue;
+
+      final outFile = File(absPath);
+      await outFile.parent.create(recursive: true);
+      await outFile.writeAsBytes(zipFile.content as List<int>, flush: true);
+    }
+  }
+
+  // ── Merge principal: combina local + ZIP por updatedAt ────────────────────
+  Future<void> _mergeWithZip(String zipFilePath, Archive archive) async {
+    // Leer estado local
+    final localPatients = List<Map<String, dynamic>>.from(
+      (await _readJsonList(_patientsFile))
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e)),
+    );
+    final localEntries = List<Map<String, dynamic>>.from(
+      (await _readJsonList(_entriesFile))
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e)),
+    );
+
+    // Leer estado del ZIP
+    List<dynamic> zipPatients = [];
+    List<dynamic> zipEntries = [];
+    for (final zf in archive) {
+      if (!zf.isFile) continue;
+      final name = zf.name.replaceAll('\\', '/');
+      if (name.endsWith('data/patients.json')) {
+        try {
+          final decoded = jsonDecode(utf8.decode(zf.content as List<int>));
+          if (decoded is List) zipPatients = decoded;
+        } catch (_) {}
+      } else if (name.endsWith('data/entries.json')) {
+        try {
+          final decoded = jsonDecode(utf8.decode(zf.content as List<int>));
+          if (decoded is List) zipEntries = decoded;
+        } catch (_) {}
+      }
+    }
+
+    // ── Merge pacientes ──────────────────────────────────────────────────────
+    final patientsById = <String, Map<String, dynamic>>{
+      for (final pt in localPatients)
+        if ((pt['id']?.toString().isNotEmpty ?? false)) pt['id'].toString(): pt,
+    };
+
+    for (final zp in zipPatients) {
+      if (zp is! Map) continue;
+      final zipPatient = Map<String, dynamic>.from(zp);
+      final id = zipPatient['id']?.toString() ?? '';
+      if (id.isEmpty) continue;
+
+      final local = patientsById[id];
+      if (local == null) {
+        // Nuevo en ZIP → agregar
+        patientsById[id] = zipPatient;
+      } else {
+        // Existe en ambos → gana el más reciente
+        if (_isNewerOrEqual(
+          zipPatient['updatedAt']?.toString(),
+          local['updatedAt']?.toString(),
+        )) {
+          patientsById[id] = zipPatient;
+        }
+      }
+    }
+
+    // ── Merge entradas ───────────────────────────────────────────────────────
+    final entriesById = <String, Map<String, dynamic>>{
+      for (final en in localEntries)
+        if ((en['id']?.toString().isNotEmpty ?? false)) en['id'].toString(): en,
+    };
+
+    for (final ze in zipEntries) {
+      if (ze is! Map) continue;
+      final zipEntry = Map<String, dynamic>.from(ze);
+      final id = zipEntry['id']?.toString() ?? '';
+      if (id.isEmpty) continue;
+
+      final local = entriesById[id];
+      if (local == null) {
+        // Nueva en ZIP → agregar y copiar adjuntos
+        entriesById[id] = zipEntry;
+        await _mergeAttachmentsFromZip(archive, zipEntry);
+      } else {
+        // Existe en ambos → gana el más reciente (incluye ELIMINATED)
+        if (_isNewerOrEqual(
+          zipEntry['updatedAt']?.toString(),
+          local['updatedAt']?.toString(),
+        )) {
+          entriesById[id] = zipEntry;
+          await _mergeAttachmentsFromZip(archive, zipEntry);
+        }
+      }
+    }
+
+    // Persistir resultado
+    await _writeJsonList(_patientsFile, patientsById.values.toList());
+    await _writeJsonList(_entriesFile, entriesById.values.toList());
+  }
+
   Future<void> importSnapshotZip(
     String zipFilePath, {
     String? zipName,
@@ -490,9 +672,7 @@ class StorageService {
     final summary =
         inspected ?? await inspectSnapshotZip(zipFilePath, zipName: zipName);
 
-    // ── Preservar config local antes de borrar todo ──────────────────────────
-    // El zip viene de otro dispositivo: no debe pisar el alias ni los datos
-    // técnicos del dispositivo actual.
+    // ── Preservar config local ───────────────────────────────────────────────
     Map<String, dynamic>? localConfig;
     final configFile = File(_configFile);
     if (await configFile.exists()) {
@@ -502,54 +682,69 @@ class StorageService {
         if (decoded is Map) localConfig = Map<String, dynamic>.from(decoded);
       } catch (_) {}
     }
-    // ────────────────────────────────────────────────────────────────────────
 
-    if (await root.exists()) {
-      await root.delete(recursive: true);
+    // ── Detectar modo: merge si hay datos locales, reemplazo si no ───────────
+    final localHasData = await _localHasData();
+
+    // ── Backup previo al merge ───────────────────────────────────────────────
+    String? backupPath;
+    if (localHasData) {
+      backupPath = await _backupLocalState();
     }
 
-    final base = await getApplicationSupportDirectory();
-    await Directory(base.path).create(recursive: true);
-
+    // ── Leer ZIP en memoria ──────────────────────────────────────────────────
     final bytes = await File(zipFilePath).readAsBytes();
     final archive = ZipDecoder().decodeBytes(bytes);
 
-    for (final file in archive) {
-      final filename = file.name.replaceAll('\\', '/');
-      final outPath = p.join(base.path, filename);
-      if (file.isFile) {
-        final outFile = File(outPath);
-        await outFile.parent.create(recursive: true);
-        await outFile.writeAsBytes(file.content as List<int>, flush: true);
-      } else {
-        await Directory(outPath).create(recursive: true);
+    if (localHasData) {
+      // MERGE
+      await _mergeWithZip(zipFilePath, archive);
+    } else {
+      // REEMPLAZO (comportamiento original)
+      if (await root.exists()) {
+        await root.delete(recursive: true);
       }
+
+      final base = await getApplicationSupportDirectory();
+      await Directory(base.path).create(recursive: true);
+
+      for (final file in archive) {
+        final filename = file.name.replaceAll('\\', '/');
+        final outPath = p.join(base.path, filename);
+        if (file.isFile) {
+          final outFile = File(outPath);
+          await outFile.parent.create(recursive: true);
+          await outFile.writeAsBytes(file.content as List<int>, flush: true);
+        } else {
+          await Directory(outPath).create(recursive: true);
+        }
+      }
+
+      await init();
     }
 
-    await init();
-
-    // ── Restaurar config local: device y alias siempre del dispositivo actual.
-    // Professional: se mantiene el local si existía, sino se usa el del zip.
+    // ── Restaurar config local siempre ───────────────────────────────────────
     if (localConfig != null) {
       final importedConfig = await getConfig();
 
       final localProfessional = localConfig['professional'];
       final importedProfessional = importedConfig['professional'];
-      final professionalToKeep = (localProfessional is Map && localProfessional.isNotEmpty)
-          ? localProfessional
-          : importedProfessional;
+      final professionalToKeep =
+          (localProfessional is Map && localProfessional.isNotEmpty)
+              ? localProfessional
+              : importedProfessional;
 
       final restoredConfig = {
         ...importedConfig,
         'professional': professionalToKeep,
-        'device': localConfig['device'], // device local siempre gana
+        'device': localConfig['device'],
       };
 
       await File(_configFile)
           .writeAsString(jsonEncode(restoredConfig), flush: true);
     }
-    // ────────────────────────────────────────────────────────────────────────
 
+    // ── Actualizar meta ──────────────────────────────────────────────────────
     final meta = await _readMeta();
     meta['lastImportAt'] = now;
     meta['lastImportedSnapshot'] = {
@@ -559,9 +754,140 @@ class StorageService {
       'patientsCount': summary['patientsCount'],
       'entriesCount': summary['entriesCount'],
       'zipName': summary['zipName'] ?? zipName,
+      'mergeMode': localHasData ? 'merge' : 'replace',
+      if (backupPath != null) 'backupPath': backupPath,
     };
     await _writeMeta(meta);
   }
+
+  // ── Restaurar backup previo al merge ─────────────────────────────────────
+  // Recibe el path del ZIP de backup generado antes del merge y lo restaura
+  // como si fuera una importación limpia, preservando config local.
+  Future<Map<String, dynamic>> restoreBackup(String backupPath) async {
+    try {
+      final backupFile = File(backupPath);
+      if (!await backupFile.exists()) {
+        return {'ok': false, 'error': 'Archivo de backup no encontrado'};
+      }
+
+      // Preservar config local
+      Map<String, dynamic>? localConfig;
+      final configFile = File(_configFile);
+      if (await configFile.exists()) {
+        try {
+          final txt = await configFile.readAsString();
+          final decoded = jsonDecode(txt);
+          if (decoded is Map) localConfig = Map<String, dynamic>.from(decoded);
+        } catch (_) {}
+      }
+
+      // Reemplazar todo con el contenido del backup
+      if (await root.exists()) {
+        await root.delete(recursive: true);
+      }
+
+      final base = await getApplicationSupportDirectory();
+      await Directory(base.path).create(recursive: true);
+
+      final bytes = await backupFile.readAsBytes();
+      final archive = ZipDecoder().decodeBytes(bytes);
+
+      for (final file in archive) {
+        final filename = file.name.replaceAll('\\', '/');
+        final outPath = p.join(base.path, filename);
+        if (file.isFile) {
+          final outFile = File(outPath);
+          await outFile.parent.create(recursive: true);
+          await outFile.writeAsBytes(file.content as List<int>, flush: true);
+        } else {
+          await Directory(outPath).create(recursive: true);
+        }
+      }
+
+      await init();
+
+      // Restaurar config local (device siempre, professional si existía)
+      if (localConfig != null) {
+        final restoredConfig = await getConfig();
+        final localProfessional = localConfig['professional'];
+        final importedProfessional = restoredConfig['professional'];
+        final professionalToKeep =
+            (localProfessional is Map && localProfessional.isNotEmpty)
+                ? localProfessional
+                : importedProfessional;
+
+        final finalConfig = {
+          ...restoredConfig,
+          'professional': professionalToKeep,
+          'device': localConfig['device'],
+        };
+        await File(_configFile)
+            .writeAsString(jsonEncode(finalConfig), flush: true);
+      }
+
+      // Limpiar referencia al backup en meta para que el botón desaparezca
+      final meta = await _readMeta();
+      if (meta['lastImportedSnapshot'] is Map) {
+        (meta['lastImportedSnapshot'] as Map).remove('backupPath');
+        (meta['lastImportedSnapshot'] as Map)['mergeMode'] = 'restored';
+      }
+      await _writeMeta(meta);
+
+      return {'ok': true};
+    } catch (e) {
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // ── Borrado permanente de paciente ────────────────────────────────────────
+  // Elimina el paciente, todas sus entradas y todos sus adjuntos del disco.
+  Future<Map<String, dynamic>> deletePatient(String patientId) async {
+    try {
+      if (patientId.isEmpty) return {'ok': false, 'error': 'patientId requerido'};
+
+      // Borrar adjuntos en disco de cada entrada del paciente
+      final entries = await _readJsonList(_entriesFile);
+      for (final e in entries) {
+        if (e is! Map) continue;
+        if (e['patientId']?.toString() != patientId) continue;
+        final attachments = e['attachments'];
+        if (attachments is List) {
+          for (final att in attachments) {
+            if (att is! Map) continue;
+            final rel = (att['relPath'] ?? att['path'] ?? '').toString();
+            if (rel.isNotEmpty) await _deleteByRelOrAbs(rel);
+          }
+        }
+      }
+
+      // Borrar carpeta de media del paciente si existe
+      final patientMediaDir = Directory(
+        p.join(mediaDir.path, 'patients', patientId),
+      );
+      if (await patientMediaDir.exists()) {
+        await patientMediaDir.delete(recursive: true);
+      }
+
+      // Borrar entradas del paciente de entries.json
+      final remainingEntries = entries
+          .where((e) => e is Map && e['patientId']?.toString() != patientId)
+          .toList();
+      await _writeJsonList(_entriesFile, remainingEntries);
+
+      // Borrar paciente de patients.json
+      final patients = await _readJsonList(_patientsFile);
+      final remainingPatients = patients
+          .where((pt) => pt is Map && pt['id']?.toString() != patientId)
+          .toList();
+      await _writeJsonList(_patientsFile, remainingPatients);
+
+      return {'ok': true};
+    } catch (e) {
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────────
 
   // -------------------------
   // Helpers adjuntos

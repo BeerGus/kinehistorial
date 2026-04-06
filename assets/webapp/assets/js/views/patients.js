@@ -4,6 +4,29 @@ import { Bridge } from "../bridge.js";
 
 let editingId = null;
 
+// ── Helper: último dx de un paciente ─────────────────────────────────────────
+// Busca en las entradas ACTIVE del paciente la más reciente cuyo título
+// contenga 'dx' (case-insensitive). Retorna el título o null.
+async function getLastDx(patientId) {
+  try {
+    const entries = await Bridge.listEntries(patientId);
+    if (!Array.isArray(entries)) return null;
+    const dxEntries = entries
+      .filter(e => (e.status || "ACTIVE") === "ACTIVE" && /dx/i.test(e.titulo || ""))
+      .sort((a, b) => {
+        const da = String(a.eventDate || (a.createdAt ? String(a.createdAt).slice(0, 10) : ""));
+        const db = String(b.eventDate || (b.createdAt ? String(b.createdAt).slice(0, 10) : ""));
+        if (db !== da) return db.localeCompare(da);
+        // Desempate por createdAt completo (con hora)
+        return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
+      });
+    return dxEntries.length > 0 ? dxEntries[0].titulo : null;
+  } catch (_) {
+    return null;
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function renderPatients() {
   await Store.refreshPatients();
 
@@ -121,7 +144,7 @@ export async function renderPatients() {
     $formTitle.textContent = `Editar paciente (${p.id})`;
   };
 
-  const draw = () => {
+  const draw = async () => {
     const q = ($q.value || "").toLowerCase().trim();
 
     const items = Store.patients.filter(p => {
@@ -132,30 +155,39 @@ export async function renderPatients() {
     $count.textContent = String(items.length);
     $list.innerHTML = "";
 
+    if (items.length === 0) {
+      $list.appendChild(el(`<div class="muted">Sin resultados.</div>`));
+      return;
+    }
+
+    // Renderizar cada paciente con su último dx (carga asíncrona)
     for (const p of items) {
-      $list.appendChild(el(`
+      const item = el(`
         <div class="item">
-          <div>
+          <div style="flex:1; min-width:0;">
             <div>
               <b>${p.apellido || ""} ${p.nombre || ""}</b>
               <span class="badge">${p.id}</span>
             </div>
-            <div class="muted">DNI: ${p.dni || "-"} · Tel: ${p.telefono || "-"}</div>
+            <div class="muted dx-line" style="font-style:italic;">Cargando dx...</div>
           </div>
-
           <div class="row">
             <a class="btn secondary" href="#/patient/${p.id}">Ver</a>
             <button class="btn secondary btn-edit" data-id="${p.id}">Editar</button>
           </div>
         </div>
-      `));
+      `);
+
+      $list.appendChild(item);
+
+      // Cargar dx de forma asíncrona para no bloquear el render
+      const $dx = item.querySelector(".dx-line");
+      getLastDx(p.id).then(dx => {
+        $dx.textContent = dx ? `Dx: ${dx}` : "Sin diagnóstico registrado";
+      });
     }
 
-    if (items.length === 0) {
-      $list.appendChild(el(`<div class="muted">Sin resultados.</div>`));
-    }
-
-    // Listeners de editar (se reasignan en cada draw)
+    // Listeners de editar
     root.querySelectorAll(".btn-edit").forEach(btn => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-id");
@@ -223,7 +255,6 @@ export async function renderPatients() {
       await Store.refreshPatients();
       draw();
 
-      // Ir al detalle del paciente
       location.hash = `#/patient/${patient.id}`;
     } catch (e) {
       console.error(e);

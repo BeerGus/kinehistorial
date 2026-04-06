@@ -299,6 +299,29 @@ class _AppState extends State<App> {
                 },
               );
 
+              c.addJavaScriptHandler(
+                handlerName: "deletePatient",
+                callback: (args) async {
+                  final payload = (args.isNotEmpty ? args[0] : {}) as Map;
+                  final patientId = payload["patientId"]?.toString() ?? "";
+                  return await storage.deletePatient(patientId);
+                },
+              );
+
+              c.addJavaScriptHandler(
+                handlerName: "restoreBackup",
+                callback: (args) async {
+                  final payload = (args.isNotEmpty ? args[0] : {}) as Map;
+                  final backupPath = payload["backupPath"]?.toString() ?? "";
+                  if (backupPath.isEmpty) return {"ok": false, "error": "backupPath requerido"};
+                  final result = await storage.restoreBackup(backupPath);
+                  if (result["ok"] == true) {
+                    await controller?.reload();
+                  }
+                  return result;
+                },
+              );
+
               // -----------------------------
               // Entradas
               // -----------------------------

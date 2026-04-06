@@ -1,7 +1,7 @@
 name: kine_historial
 description: KineHistorial wrapper
 publish_to: 'none'
-version: 3.0.0
+version: 3.0.6
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
