@@ -125,9 +125,10 @@ class _AppState extends State<App> {
     };
   }
 
-  Future<bool> _confirmImport(Map<String, dynamic> summary) async {
+  // Retorna null si cancelado, o Map{confirmed: bool, forceReplace: bool}
+  Future<Map<String, dynamic>?> _confirmImport(Map<String, dynamic> summary) async {
     final dlgCtx = _navKey.currentContext;
-    if (dlgCtx == null) return false;
+    if (dlgCtx == null) return null;
 
     final pCount = summary["patientsCount"];
     final eCount = summary["entriesCount"];
@@ -137,35 +138,64 @@ class _AppState extends State<App> {
             ? summary["deviceName"].toString()
             : "desconocido";
 
-    final msg = [
-      "Este zip tiene $pCount pacientes y $eCount entradas.",
-      "Exportado: $exportedAt",
-      "Origen: $deviceName",
-      "",
-      "Al importar se REEMPLAZA todo lo local.",
-      "¿Querés importar ahora?"
-    ].join("\n");
+    bool forceReplace = false;
 
-    final confirmed = await showDialog<bool>(
+    final result = await showDialog<bool>(
       context: dlgCtx,
       barrierDismissible: true,
-      builder: (_) => AlertDialog(
-        title: const Text("Confirmar importación"),
-        content: Text(msg),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dlgCtx).pop(false),
-            child: const Text("Cancelar"),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          title: const Text("Confirmar importación"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Este zip tiene $pCount pacientes y $eCount entradas."),
+              Text("Exportado: $exportedAt"),
+              Text("Origen: $deviceName"),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Checkbox(
+                    value: forceReplace,
+                    onChanged: (v) => setState(() => forceReplace = v ?? false),
+                  ),
+                  const Expanded(
+                    child: Text(
+                      "Reemplazar todo (sobreescribir base local)",
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+              if (!forceReplace)
+                const Text(
+                  "Los datos locales se combinarán con los del ZIP (merge).",
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                )
+              else
+                const Text(
+                  "⚠ Todo lo local será reemplazado por el ZIP.",
+                  style: TextStyle(fontSize: 12, color: Colors.red),
+                ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(dlgCtx).pop(true),
-            child: const Text("Importar"),
-          ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text("Cancelar"),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text("Importar"),
+            ),
+          ],
+        ),
       ),
     );
 
-    return confirmed == true;
+    if (result != true) return null;
+    return {"confirmed": true, "forceReplace": forceReplace};
   }
 
   @override
@@ -305,6 +335,43 @@ class _AppState extends State<App> {
                   final payload = (args.isNotEmpty ? args[0] : {}) as Map;
                   final patientId = payload["patientId"]?.toString() ?? "";
                   return await storage.deletePatient(patientId);
+                },
+              );
+
+              c.addJavaScriptHandler(
+                handlerName: "mergePatients",
+                callback: (args) async {
+                  final payload = (args.isNotEmpty ? args[0] : {}) as Map;
+                  final baseId = payload["baseId"]?.toString() ?? "";
+                  final otherId = payload["otherId"]?.toString() ?? "";
+                  final fields = payload["mergedFields"];
+                  final mergedFields = fields is Map
+                      ? Map<String, dynamic>.from(fields)
+                      : <String, dynamic>{};
+                  return await storage.mergePatients(
+                    baseId: baseId,
+                    otherId: otherId,
+                    mergedFields: mergedFields,
+                  );
+                },
+              );
+
+              c.addJavaScriptHandler(
+                handlerName: "getPendingDuplicates",
+                callback: (args) async {
+                  final meta = await storage.getMeta();
+                  final duplicates = meta["pendingDuplicates"];
+                  return {"duplicates": duplicates ?? []};
+                },
+              );
+
+              c.addJavaScriptHandler(
+                handlerName: "clearPendingDuplicates",
+                callback: (args) async {
+                  final meta = await storage.getMeta();
+                  meta.remove("pendingDuplicates");
+                  await storage.saveMeta(meta);
+                  return {"ok": true};
                 },
               );
 
@@ -477,12 +544,16 @@ class _AppState extends State<App> {
                       zipName: zipName,
                     );
 
-                    final confirmed = await _confirmImport(summary);
-                    if (!confirmed) {
+                    final importResult = await _confirmImport(summary);
+                    if (importResult == null) {
                       return {"ok": false, "cancelled": true};
                     }
 
-                    await storage.importSnapshotZip(zipPathToUse);
+                    final forceReplace = importResult["forceReplace"] == true;
+                    await storage.importSnapshotZip(
+                      zipPathToUse,
+                      forceReplace: forceReplace,
+                    );
                     await controller?.reload();
 
                     return {"ok": true, "summary": summary};

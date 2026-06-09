@@ -1,12 +1,24 @@
 import { el, toast, uid } from "../ui.js";
 import { Store } from "../store.js";
 import { Bridge } from "../bridge.js";
+import { showMergeReview } from "./merge_review.js";
 
 let editingId = null;
 
+// ── Normalizar texto para comparación ─────────────────────────────────────────
+function normalize(s) {
+  return (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+}
+
+// ── Icono de mergeTag ─────────────────────────────────────────────────────────
+function mergeTagIcon(tag) {
+  if (tag === "new") return `<span title="Nuevo importado" style="color:#f39c12; margin-left:4px;">⭐</span>`;
+  if (tag === "merged") return `<span title="Fusionado" style="color:#e67e22; margin-left:4px;">⚠</span>`;
+  if (tag === "unchanged") return `<span title="Sin cambios" style="color:#27ae60; margin-left:4px;">=</span>`;
+  return "";
+}
+
 // ── Helper: último dx de un paciente ─────────────────────────────────────────
-// Busca en las entradas ACTIVE del paciente la más reciente cuyo título
-// contenga 'dx' (case-insensitive). Retorna el título o null.
 async function getLastDx(patientId) {
   try {
     const entries = await Bridge.listEntries(patientId);
@@ -17,7 +29,6 @@ async function getLastDx(patientId) {
         const da = String(a.eventDate || (a.createdAt ? String(a.createdAt).slice(0, 10) : ""));
         const db = String(b.eventDate || (b.createdAt ? String(b.createdAt).slice(0, 10) : ""));
         if (db !== da) return db.localeCompare(da);
-        // Desempate por createdAt completo (con hora)
         return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
       });
     return dxEntries.length > 0 ? dxEntries[0].titulo : null;
@@ -25,10 +36,30 @@ async function getLastDx(patientId) {
     return null;
   }
 }
+
+// ── Helper: chequea si paciente tiene dx / ep ─────────────────────────────────
+async function getPatientFlags(patientId) {
+  try {
+    const entries = await Bridge.listEntries(patientId);
+    if (!Array.isArray(entries)) return { hasDx: false, hasEp: false };
+    const active = entries.filter(e => (e.status || "ACTIVE") === "ACTIVE");
+    return {
+      hasDx: active.some(e => /dx/i.test(e.titulo || "")),
+      hasEp: active.some(e => /epicrisis/i.test(e.titulo || "")),
+    };
+  } catch (_) {
+    return { hasDx: false, hasEp: false };
+  }
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function renderPatients() {
   await Store.refreshPatients();
+
+  // Estado de filtros y modo COMB
+  let filterSinDx = false;
+  let filterSinEp = false;
+  let combSourceId = null; // ID del paciente seleccionado para combinar
 
   const root = el(`
     <section class="card">
@@ -90,6 +121,12 @@ export async function renderPatients() {
 
       <div class="spacer"></div>
 
+      <!-- Filtros E -->
+      <div class="row" style="gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+        <button class="btn secondary" id="btnFilterDx" style="font-size:12px;">P s/ dx</button>
+        <button class="btn secondary" id="btnFilterEp" style="font-size:12px;">P s/ ep</button>
+      </div>
+
       <input class="input" id="q" placeholder="Buscar por nombre, apellido, DNI..." />
       <div class="spacer"></div>
 
@@ -100,19 +137,19 @@ export async function renderPatients() {
   const $list = root.querySelector("#list");
   const $count = root.querySelector("#count");
   const $q = root.querySelector("#q");
-
   const $newWrap = root.querySelector("#newWrap");
   const $btnToggleNew = root.querySelector("#btnToggleNew");
   const $btnSave = root.querySelector("#btnSave");
   const $btnCancel = root.querySelector("#btnCancel");
   const $formTitle = root.querySelector("#formTitle");
-
   const $apellido = root.querySelector("#np_apellido");
   const $nombre = root.querySelector("#np_nombre");
   const $dni = root.querySelector("#np_dni");
   const $tel = root.querySelector("#np_tel");
   const $email = root.querySelector("#np_email");
   const $notas = root.querySelector("#np_notas");
+  const $btnFilterDx = root.querySelector("#btnFilterDx");
+  const $btnFilterEp = root.querySelector("#btnFilterEp");
 
   const toggleForm = (show) => {
     const wantShow = (typeof show === "boolean") ? show : $newWrap.classList.contains("hidden");
@@ -144,13 +181,30 @@ export async function renderPatients() {
     $formTitle.textContent = `Editar paciente (${p.id})`;
   };
 
+  // ── Cancelar modo COMB ────────────────────────────────────────────────────
+  const cancelComb = () => {
+    combSourceId = null;
+    draw();
+  };
+
   const draw = async () => {
     const q = ($q.value || "").toLowerCase().trim();
 
-    const items = Store.patients.filter(p => {
+    // Aplicar filtros de texto
+    let items = Store.patients.filter(p => {
       const s = `${p.nombre || ""} ${p.apellido || ""} ${p.dni || ""}`.toLowerCase();
       return s.includes(q);
     });
+
+    // Filtros E: si están activos, cargar entradas y filtrar
+    if (filterSinDx || filterSinEp) {
+      const flags = await Promise.all(items.map(p => getPatientFlags(p.id)));
+      items = items.filter((p, i) => {
+        if (filterSinDx && flags[i].hasDx) return false;
+        if (filterSinEp && flags[i].hasEp) return false;
+        return true;
+      });
+    }
 
     $count.textContent = String(items.length);
     $list.innerHTML = "";
@@ -160,40 +214,108 @@ export async function renderPatients() {
       return;
     }
 
-    // Renderizar cada paciente con su último dx (carga asíncrona)
+    const isCombMode = !!combSourceId;
+
     for (const p of items) {
+      const isSource = p.id === combSourceId;
+      const tag = p._mergeTag || "";
+      const tagIcon = mergeTagIcon(tag);
+
+      // Determinar botón COMB según estado
+      let combBtn = "";
+      if (isSource) {
+        combBtn = `<button class="btn secondary btn-comb-cancel" data-id="${p.id}" style="font-size:11px; color:#c0392b; border-color:#c0392b;">Cancelar</button>`;
+      } else if (isCombMode) {
+        combBtn = `<button class="btn secondary btn-comb-with" data-id="${p.id}" style="font-size:11px;">COMB. CON</button>`;
+      } else {
+        combBtn = `<button class="btn secondary btn-comb" data-id="${p.id}" style="font-size:11px;">COMB</button>`;
+      }
+
       const item = el(`
-        <div class="item">
+        <div class="item" style="${isSource ? 'background:#fff8e7; border-left:3px solid #f39c12;' : ''}">
           <div style="flex:1; min-width:0;">
             <div>
               <b>${p.apellido || ""} ${p.nombre || ""}</b>
               <span class="badge">${p.id}</span>
+              ${tagIcon}
             </div>
             <div class="muted dx-line" style="font-style:italic;">Cargando dx...</div>
           </div>
-          <div class="row">
-            <a class="btn secondary" href="#/patient/${p.id}">Ver</a>
-            <button class="btn secondary btn-edit" data-id="${p.id}">Editar</button>
+          <div class="row" style="gap:6px; flex-wrap:wrap;">
+            <a class="btn secondary" href="#/patient/${p.id}" style="font-size:12px;">Ver</a>
+            ${!isCombMode ? `<button class="btn secondary btn-edit" data-id="${p.id}" style="font-size:12px;">Editar</button>` : ""}
+            ${combBtn}
           </div>
         </div>
       `);
 
       $list.appendChild(item);
 
-      // Cargar dx de forma asíncrona para no bloquear el render
+      // Dx asíncrono
       const $dx = item.querySelector(".dx-line");
       getLastDx(p.id).then(dx => {
         $dx.textContent = dx ? `Dx: ${dx}` : "Sin diagnóstico registrado";
       });
     }
 
-    // Listeners de editar
+    // ── Listeners COMB ────────────────────────────────────────────────────
+    root.querySelectorAll(".btn-comb").forEach(btn => {
+      btn.addEventListener("click", () => {
+        combSourceId = btn.getAttribute("data-id");
+        draw();
+      });
+    });
+
+    root.querySelectorAll(".btn-comb-cancel").forEach(btn => {
+      btn.addEventListener("click", cancelComb);
+    });
+
+    root.querySelectorAll(".btn-comb-with").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const targetId = btn.getAttribute("data-id");
+        const sourcePatient = Store.getPatient(combSourceId);
+        const targetPatient = Store.getPatient(targetId);
+        if (!sourcePatient || !targetPatient) return toast("Paciente no encontrado");
+
+        // El más reciente por updatedAt es la base
+        const baseIsSource = (sourcePatient.updatedAt || "") >= (targetPatient.updatedAt || "");
+        const base = baseIsSource ? sourcePatient : targetPatient;
+        const other = baseIsSource ? targetPatient : sourcePatient;
+
+        combSourceId = null;
+
+        // Abrir modal de fusión
+        await showMergeReview({
+          base,
+          other,
+          reason: "manual",
+          onFusionar: async (mergedFields) => {
+            try {
+              const res = await Bridge.call("mergePatients", {
+                baseId: base.id,
+                otherId: other.id,
+                mergedFields,
+              });
+              if (!res || res.ok !== true) return toast("Error al fusionar");
+              toast("Pacientes fusionados ✓");
+              await Store.refreshPatients();
+              draw();
+            } catch (e) {
+              console.error(e);
+              toast("Error al fusionar");
+            }
+          },
+          onCancelar: () => draw(),
+        });
+      });
+    });
+
+    // ── Listeners Editar ──────────────────────────────────────────────────
     root.querySelectorAll(".btn-edit").forEach(btn => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-id");
         const p = Store.getPatient(id);
         if (!p) return toast("Paciente no encontrado");
-
         fillForm(p);
         toggleForm(true);
         setTimeout(() => $apellido.focus(), 0);
@@ -201,7 +323,23 @@ export async function renderPatients() {
     });
   };
 
-  // Eventos UI
+  // ── Filtros E ─────────────────────────────────────────────────────────────
+  $btnFilterDx.addEventListener("click", () => {
+    filterSinDx = !filterSinDx;
+    $btnFilterDx.style.background = filterSinDx ? "#e67e2222" : "";
+    $btnFilterDx.style.borderColor = filterSinDx ? "#e67e22" : "";
+    $btnFilterDx.style.color = filterSinDx ? "#e67e22" : "";
+    draw();
+  });
+
+  $btnFilterEp.addEventListener("click", () => {
+    filterSinEp = !filterSinEp;
+    $btnFilterEp.style.background = filterSinEp ? "#8e44ad22" : "";
+    $btnFilterEp.style.borderColor = filterSinEp ? "#8e44ad" : "";
+    $btnFilterEp.style.color = filterSinEp ? "#8e44ad" : "";
+    draw();
+  });
+
   $q.addEventListener("input", draw);
 
   $btnToggleNew.addEventListener("click", () => {
@@ -241,20 +379,14 @@ export async function renderPatients() {
     $btnSave.disabled = true;
     try {
       const res = await Bridge.upsertPatient(patient);
-      console.log("upsertPatient res:", res);
-
       if (!res || res.ok !== true) {
         throw new Error("upsertPatient devolvió respuesta inválida: " + JSON.stringify(res));
       }
-
       toast(isEdit ? "Paciente actualizado" : "Paciente creado");
-
       clearForm();
       toggleForm(false);
-
       await Store.refreshPatients();
       draw();
-
       location.hash = `#/patient/${patient.id}`;
     } catch (e) {
       console.error(e);
@@ -265,7 +397,6 @@ export async function renderPatients() {
     }
   });
 
-  // init
   draw();
   return root;
 }

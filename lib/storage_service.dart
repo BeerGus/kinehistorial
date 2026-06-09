@@ -79,6 +79,10 @@ class StorageService {
     return await _readMeta();
   }
 
+  Future<void> saveMeta(Map<String, dynamic> meta) async {
+    await _writeMeta(meta);
+  }
+
   // -------------------------
   // Config (profesional + dispositivo)
   // -------------------------
@@ -568,6 +572,84 @@ class StorageService {
     }
   }
 
+  // ── Normalización de texto para comparación de duplicados ───────────────────
+  String _normalize(String? s) {
+    if (s == null) return '';
+    // Quitar tildes y pasar a lowercase
+    final withoutDiacritics = s
+        .toLowerCase()
+        .replaceAll(RegExp(r'[áàäâ]'), 'a')
+        .replaceAll(RegExp(r'[éèëê]'), 'e')
+        .replaceAll(RegExp(r'[íìïî]'), 'i')
+        .replaceAll(RegExp(r'[óòöô]'), 'o')
+        .replaceAll(RegExp(r'[úùüû]'), 'u')
+        .replaceAll(RegExp(r'[ñ]'), 'n');
+    return withoutDiacritics.trim();
+  }
+
+  // ── Detección de duplicados entre local y ZIP ─────────────────────────────
+  // Retorna lista de pares {local, zip} que coinciden por algún criterio (OR):
+  //   - nombre + apellido normalizados iguales
+  //   - DNI igual (solo si ambos tienen valor)
+  //   - email igual (solo si ambos tienen valor)
+  List<Map<String, dynamic>> _detectDuplicates(
+    List<Map<String, dynamic>> localPatients,
+    List<Map<String, dynamic>> zipPatients,
+  ) {
+    final duplicates = <Map<String, dynamic>>[];
+    final processedPairs = <String>{};
+
+    for (final local in localPatients) {
+      final localId = local['id']?.toString() ?? '';
+      for (final zip in zipPatients) {
+        final zipId = zip['id']?.toString() ?? '';
+
+        // Ignorar si tienen el mismo ID (ya lo resuelve el merge por ID)
+        if (localId == zipId) continue;
+
+        final pairKey = '$localId|$zipId';
+        if (processedPairs.contains(pairKey)) continue;
+
+        bool isDuplicate = false;
+
+        // Criterio 1: nombre + apellido normalizados
+        final localNombre = _normalize(local['nombre']?.toString());
+        final localApellido = _normalize(local['apellido']?.toString());
+        final zipNombre = _normalize(zip['nombre']?.toString());
+        final zipApellido = _normalize(zip['apellido']?.toString());
+        if (localNombre.isNotEmpty && localApellido.isNotEmpty &&
+            localNombre == zipNombre && localApellido == zipApellido) {
+          isDuplicate = true;
+        }
+
+        // Criterio 2: DNI igual (ambos con valor)
+        if (!isDuplicate) {
+          final localDni = (local['dni']?.toString() ?? '').trim();
+          final zipDni = (zip['dni']?.toString() ?? '').trim();
+          if (localDni.isNotEmpty && zipDni.isNotEmpty && localDni == zipDni) {
+            isDuplicate = true;
+          }
+        }
+
+        // Criterio 3: email igual (ambos con valor)
+        if (!isDuplicate) {
+          final localEmail = _normalize(local['email']?.toString());
+          final zipEmail = _normalize(zip['email']?.toString());
+          if (localEmail.isNotEmpty && zipEmail.isNotEmpty && localEmail == zipEmail) {
+            isDuplicate = true;
+          }
+        }
+
+        if (isDuplicate) {
+          processedPairs.add(pairKey);
+          duplicates.add({'local': local, 'zip': zip});
+        }
+      }
+    }
+
+    return duplicates;
+  }
+
   // ── Merge principal: combina local + ZIP por updatedAt ────────────────────
   Future<void> _mergeWithZip(String zipFilePath, Archive archive) async {
     // Leer estado local
@@ -604,7 +686,10 @@ class StorageService {
     // ── Merge pacientes ──────────────────────────────────────────────────────
     final patientsById = <String, Map<String, dynamic>>{
       for (final pt in localPatients)
-        if ((pt['id']?.toString().isNotEmpty ?? false)) pt['id'].toString(): pt,
+        if ((pt['id']?.toString().isNotEmpty ?? false)) pt['id'].toString(): {
+          ...Map<String, dynamic>.from(pt),
+          '_mergeTag': 'unchanged',
+        },
     };
 
     for (final zp in zipPatients) {
@@ -615,17 +700,36 @@ class StorageService {
 
       final local = patientsById[id];
       if (local == null) {
-        // Nuevo en ZIP → agregar
-        patientsById[id] = zipPatient;
+        // Nuevo en ZIP → agregar con tag 'new'
+        patientsById[id] = {...zipPatient, '_mergeTag': 'new'};
       } else {
         // Existe en ambos → gana el más reciente
         if (_isNewerOrEqual(
           zipPatient['updatedAt']?.toString(),
           local['updatedAt']?.toString(),
         )) {
-          patientsById[id] = zipPatient;
+          patientsById[id] = {...zipPatient, '_mergeTag': 'unchanged'};
         }
+        // Si gana el local, mantiene su tag actual
       }
+    }
+
+    // ── Detectar posibles duplicados (mismo paciente con distinto ID) ─────────
+    final localList = patientsById.values.toList();
+    final zipList = zipPatients.whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e)).toList();
+    final duplicates = _detectDuplicates(localList, zipList);
+    // Los duplicados se retornan al caller para resolución en el JS via handler
+    // Se guardan en meta para que el JS los lea al completar el import
+    if (duplicates.isNotEmpty) {
+      final meta = await _readMeta();
+      meta['pendingDuplicates'] = duplicates.map((d) => {
+        'localId': d['local']['id'],
+        'zipId': d['zip']['id'],
+        'local': d['local'],
+        'zip': d['zip'],
+      }).toList();
+      await _writeMeta(meta);
     }
 
     // ── Merge entradas ───────────────────────────────────────────────────────
@@ -666,6 +770,7 @@ class StorageService {
     String zipFilePath, {
     String? zipName,
     Map<String, dynamic>? inspected,
+    bool forceReplace = false,
   }) async {
     final now = _nowIso();
 
@@ -696,7 +801,7 @@ class StorageService {
     final bytes = await File(zipFilePath).readAsBytes();
     final archive = ZipDecoder().decodeBytes(bytes);
 
-    if (localHasData) {
+    if (localHasData && !forceReplace) {
       // MERGE
       await _mergeWithZip(zipFilePath, archive);
     } else {
@@ -754,7 +859,7 @@ class StorageService {
       'patientsCount': summary['patientsCount'],
       'entriesCount': summary['entriesCount'],
       'zipName': summary['zipName'] ?? zipName,
-      'mergeMode': localHasData ? 'merge' : 'replace',
+      'mergeMode': (localHasData && !forceReplace) ? 'merge' : 'replace',
       if (backupPath != null) 'backupPath': backupPath,
     };
     await _writeMeta(meta);
@@ -832,6 +937,107 @@ class StorageService {
         (meta['lastImportedSnapshot'] as Map)['mergeMode'] = 'restored';
       }
       await _writeMeta(meta);
+
+      return {'ok': true};
+    } catch (e) {
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // ── Fusión manual de dos pacientes ──────────────────────────────────────────
+  // baseId: paciente que conserva el ID (el más reciente por updatedAt)
+  // otherId: paciente que se elimina tras fusionar
+  // mergedFields: mapa con los valores elegidos campo por campo
+  Future<Map<String, dynamic>> mergePatients({
+    required String baseId,
+    required String otherId,
+    required Map<String, dynamic> mergedFields,
+  }) async {
+    try {
+      final patients = await _readJsonList(_patientsFile);
+
+      Map<String, dynamic>? basePatient;
+      Map<String, dynamic>? otherPatient;
+      for (final pt in patients) {
+        if (pt is! Map) continue;
+        if (pt['id']?.toString() == baseId) basePatient = Map<String, dynamic>.from(pt);
+        if (pt['id']?.toString() == otherId) otherPatient = Map<String, dynamic>.from(pt);
+      }
+
+      if (basePatient == null || otherPatient == null) {
+        return {'ok': false, 'error': 'Paciente no encontrado'};
+      }
+
+      // Aplicar campos elegidos por el usuario
+      final now = _nowIso();
+      final merged = {
+        ...basePatient,
+        ...mergedFields,
+        'id': baseId,
+        'updatedAt': now,
+        '_mergeTag': 'merged',
+      };
+
+      // Reasignar todas las entradas del paciente eliminado al base
+      final entries = await _readJsonList(_entriesFile);
+      final updatedEntries = entries.map((e) {
+        if (e is! Map) return e;
+        final entry = Map<String, dynamic>.from(e);
+        if (entry['patientId']?.toString() == otherId) {
+          entry['patientId'] = baseId;
+        }
+        return entry;
+      }).toList();
+
+      // Mover archivos de media del otro al base (renombrar carpeta si existe)
+      final otherMediaDir = Directory(p.join(mediaDir.path, 'patients', otherId));
+      final baseMediaDir = Directory(p.join(mediaDir.path, 'patients', baseId));
+      if (await otherMediaDir.exists()) {
+        if (!await baseMediaDir.exists()) await baseMediaDir.create(recursive: true);
+        // Mover archivos uno por uno
+        await for (final entity in otherMediaDir.list(recursive: true)) {
+          if (entity is File) {
+            final rel = p.relative(entity.path, from: otherMediaDir.path);
+            final dest = File(p.join(baseMediaDir.path, rel));
+            await dest.parent.create(recursive: true);
+            await entity.copy(dest.path);
+            await entity.delete();
+          }
+        }
+        // Actualizar relPath en entradas reasignadas
+        for (int i = 0; i < updatedEntries.length; i++) {
+          final e = updatedEntries[i];
+          if (e is! Map) continue;
+          final entry = Map<String, dynamic>.from(e);
+          if (entry['patientId']?.toString() != baseId) continue;
+          if (entry['attachments'] is List) {
+            final atts = (entry['attachments'] as List).map((a) {
+              if (a is! Map) return a;
+              final att = Map<String, dynamic>.from(a);
+              final rel = (att['relPath'] ?? att['path'] ?? '').toString();
+              if (rel.contains('patients/$otherId/')) {
+                att['relPath'] = rel.replaceAll('patients/$otherId/', 'patients/$baseId/');
+              }
+              return att;
+            }).toList();
+            entry['attachments'] = atts;
+            updatedEntries[i] = entry;
+          }
+        }
+        try { await otherMediaDir.delete(recursive: true); } catch (_) {}
+      }
+
+      // Guardar paciente fusionado, eliminar el otro
+      final updatedPatients = patients
+          .where((pt) => pt is Map && pt['id']?.toString() != otherId)
+          .map((pt) {
+            if (pt is Map && pt['id']?.toString() == baseId) return merged;
+            return pt;
+          }).toList();
+
+      await _writeJsonList(_patientsFile, updatedPatients);
+      await _writeJsonList(_entriesFile, updatedEntries);
 
       return {'ok': true};
     } catch (e) {

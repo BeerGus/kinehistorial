@@ -32,7 +32,7 @@ function showAbout() {
         <div>
           <div style="font-size:20px; font-weight:700; color:var(--text);">KineHistorial</div>
           <div style="font-size:13px; color:var(--muted); margin-top:3px;">
-            Versión <strong>3.0.5</strong> &nbsp;·&nbsp; Doc funcional <strong>v3.0</strong>
+            Versión <strong>3.0.7</strong> &nbsp;·&nbsp; Doc funcional <strong>v3.1</strong>
           </div>
         </div>
         <button id="aboutClose" style="
@@ -142,6 +142,37 @@ function showRestoreConfirm(onConfirm) {
   document.addEventListener("keydown", onKey);
 }
 
+// ── Contadores F ──────────────────────────────────────────────────────────────
+// Calcula en tiempo real: total pacientes, sin dx, sin ep.
+async function calcCounters(callHandler) {
+  try {
+    const patients = await callHandler("listPatients");
+    if (!Array.isArray(patients)) return null;
+
+    let sinDx = 0;
+    let sinEp = 0;
+
+    await Promise.all(patients.map(async (pat) => {
+      try {
+        const entries = await callHandler("listEntries", { patientId: pat.id });
+        const active = Array.isArray(entries)
+          ? entries.filter(e => (e.status || "ACTIVE") === "ACTIVE")
+          : [];
+        if (!active.some(e => /dx/i.test(e.titulo || ""))) sinDx++;
+        if (!active.some(e => /epicrisis/i.test(e.titulo || ""))) sinEp++;
+      } catch (_) {
+        sinDx++;
+        sinEp++;
+      }
+    }));
+
+    return { total: patients.length, sinDx, sinEp };
+  } catch (_) {
+    return null;
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ── Vista Home ────────────────────────────────────────────────────────────────
 export function renderHome() {
   const root = document.createElement("div");
@@ -157,6 +188,36 @@ export function renderHome() {
   p.className = "muted";
   p.textContent = "Historial médico de kinesiología (offline).";
 
+  // ── Chips de contadores ───────────────────────────────────────────────────
+  const countersBox = document.createElement("div");
+  countersBox.style.cssText = "display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; margin-bottom:4px;";
+
+  const makeChip = (label, color) => {
+    const chip = document.createElement("div");
+    chip.style.cssText = `
+      background:${color}18; border:1px solid ${color}44; border-radius:10px;
+      padding:8px 16px; text-align:center; min-width:80px;
+    `;
+    const num = document.createElement("div");
+    num.style.cssText = `font-size:22px; font-weight:700; color:${color};`;
+    num.textContent = "…";
+    const lbl = document.createElement("div");
+    lbl.style.cssText = "font-size:11px; color:var(--muted); margin-top:2px;";
+    lbl.textContent = label;
+    chip.appendChild(num);
+    chip.appendChild(lbl);
+    return { chip, num };
+  };
+
+  const { chip: chipTotal, num: numTotal } = makeChip("Pacientes", "#2E5E8E");
+  const { chip: chipSinDx, num: numSinDx } = makeChip("Sin dx", "#e67e22");
+  const { chip: chipSinEp, num: numSinEp } = makeChip("Sin ep", "#8e44ad");
+
+  countersBox.appendChild(chipTotal);
+  countersBox.appendChild(chipSinDx);
+  countersBox.appendChild(chipSinEp);
+  // ─────────────────────────────────────────────────────────────────────────
+
   const metaBox = document.createElement("div");
   metaBox.className = "muted";
   metaBox.style.cssText = "margin-top:8px; display:grid; gap:4px;";
@@ -168,7 +229,6 @@ export function renderHome() {
   metaBox.appendChild(lineExport);
   metaBox.appendChild(lineImport);
 
-  // Fila del botón restaurar — oculta por defecto, visible solo si hay backup de merge
   const restoreRow = document.createElement("div");
   restoreRow.style.cssText = "margin-top:6px; display:none;";
   const btnRestore = document.createElement("button");
@@ -183,7 +243,23 @@ export function renderHome() {
     try {
       const callHandler = window.flutter_inappwebview?.callHandler;
       if (!callHandler) return;
-      const meta = await callHandler("getMeta");
+
+      // Meta y contadores en paralelo
+      const [meta, counters] = await Promise.all([
+        callHandler("getMeta"),
+        calcCounters(callHandler),
+      ]);
+
+      if (counters) {
+        numTotal.textContent = String(counters.total);
+        numSinDx.textContent = String(counters.sinDx);
+        numSinEp.textContent = String(counters.sinEp);
+      } else {
+        numTotal.textContent = "-";
+        numSinDx.textContent = "-";
+        numSinEp.textContent = "-";
+      }
+
       if (!meta) return;
 
       lineExport.textContent = `Última exportación: ${isoShort(meta.lastExportAt)}`;
@@ -195,7 +271,6 @@ export function renderHome() {
           `Contenido: ${snap.patientsCount ?? "?"} pacientes, ${snap.entriesCount ?? "?"} entradas | ` +
           `De fecha: ${isoShort(snap.exportedAt)} | Origen: ${snap.deviceName || "desconocido"} (${snap.deviceType || "dispositivo desconocido"})`;
 
-        // Mostrar restaurar solo si el último import fue un merge con backup disponible
         if (snap.mergeMode === "merge" && snap.backupPath) {
           restoreRow.style.display = "block";
           btnRestore.addEventListener("click", () => {
@@ -241,6 +316,7 @@ export function renderHome() {
 
   card.appendChild(h);
   card.appendChild(p);
+  card.appendChild(countersBox);
   card.appendChild(metaBox);
   card.appendChild(actions);
   root.appendChild(card);
