@@ -513,12 +513,8 @@ class StorageService {
         .toIso8601String()
         .replaceAll(':', '-')
         .replaceAll('.', '-');
-    // Usar directorio de soporte (persistente) en lugar del temporal
-    // para que el backup sobreviva entre sesiones en Android
-    final base = await getApplicationSupportDirectory();
-    final backupsDir = Directory(p.join(base.path, 'KineHistorial_backups'));
-    if (!await backupsDir.exists()) await backupsDir.create(recursive: true);
-    final backupPath = p.join(backupsDir.path, 'backup_$stamp.zip');
+    final tempDir = await getTemporaryDirectory();
+    final backupPath = p.join(tempDir.path, 'KineHistorial_backup_$stamp.zip');
 
     if (!await root.exists()) return backupPath;
 
@@ -975,49 +971,9 @@ class StorageService {
 
       // Aplicar campos elegidos por el usuario
       final now = _nowIso();
-
-      // Construir nota de fusión con los datos NO seleccionados del otro paciente
-      final notSelectedFields = <String>[];
-      final fieldLabels = {
-        'nombre': 'Nombre', 'apellido': 'Apellido', 'dni': 'DNI',
-        'telefono': 'Tel', 'email': 'Email',
-      };
-      for (final entry in fieldLabels.entries) {
-        final key = entry.key;
-        final label = entry.value;
-        // El valor no seleccionado es el del otro paciente
-        final selectedFromBase = (mergedFields[key] ?? '') == (basePatient[key] ?? '');
-        final notSelectedVal = selectedFromBase
-            ? (otherPatient[key]?.toString() ?? '').trim()
-            : (basePatient[key]?.toString() ?? '').trim();
-        if (notSelectedVal.isNotEmpty) {
-          notSelectedFields.add('$label: $notSelectedVal');
-        }
-      }
-      // Notas originales del paciente no seleccionado
-      final selectedNotasFromBase = (mergedFields['notas'] ?? '') == (basePatient['notas'] ?? '');
-      final otherNotas = selectedNotasFromBase
-          ? (otherPatient['notas']?.toString() ?? '').trim()
-          : (basePatient['notas']?.toString() ?? '').trim();
-
-      final nowDate = now.substring(0, 10);
-      final otherId2 = selectedNotasFromBase ? otherId : baseId;
-      final fusionNote = [
-        '',
-        '--- Fusión $nowDate ---',
-        'Datos no seleccionados del paciente $otherId2:',
-        if (notSelectedFields.isNotEmpty) notSelectedFields.join(' | '),
-        if (otherNotas.isNotEmpty) 'Notas originales: $otherNotas',
-        '---',
-      ].join('\n');
-
-      final baseNotas = (mergedFields['notas'] ?? '').toString().trim();
-      final finalNotas = baseNotas.isEmpty ? fusionNote.trim() : '$baseNotas$fusionNote';
-
       final merged = {
         ...basePatient,
         ...mergedFields,
-        'notas': finalNotas,
         'id': baseId,
         'updatedAt': now,
         '_mergeTag': 'merged',

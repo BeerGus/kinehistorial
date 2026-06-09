@@ -45,4 +45,5 @@ flutter:
     - assets/webapp/assets/js/views/entry_edit.js
     - assets/webapp/assets/js/views/professional.js
     - assets/webapp/assets/js/views/hc_generator.js
+    - assets/webapp/assets/js/views/merge_review.js
     - assets/
